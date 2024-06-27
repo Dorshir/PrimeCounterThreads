@@ -1,0 +1,45 @@
+desc: (none)
+cmd: ./randomGenerator 10 10000000
+time_unit: i
+#-----------
+snapshot=0
+#-----------
+time=0
+mem_heap_B=0
+mem_heap_extra_B=0
+mem_stacks_B=0
+heap_tree=empty
+#-----------
+snapshot=1
+#-----------
+time=182620
+mem_heap_B=4096
+mem_heap_extra_B=8
+mem_stacks_B=0
+heap_tree=empty
+#-----------
+snapshot=2
+#-----------
+time=7995950267
+mem_heap_B=4096
+mem_heap_extra_B=8
+mem_stacks_B=0
+heap_tree=peak
+n1: 4096 (heap allocation functions) malloc/new/new[], --alloc-fns, etc.
+ n1: 4096 0x48DEBA3: _IO_file_doallocate (filedoalloc.c:101)
+  n1: 4096 0x48EDCDF: _IO_doallocbuf (genops.c:347)
+   n1: 4096 0x48ECF5F: _IO_file_overflow@@GLIBC_2.2.5 (fileops.c:744)
+    n1: 4096 0x48EB6D4: _IO_new_file_xsputn (fileops.c:1243)
+     n1: 4096 0x48EB6D4: _IO_file_xsputn@@GLIBC_2.2.5 (fileops.c:1196)
+      n1: 4096 0x48D5CA8: outstring_func (vfprintf-internal.c:239)
+       n1: 4096 0x48D5CA8: __vfprintf_internal (vfprintf-internal.c:1516)
+        n1: 4096 0x48C079E: printf (printf.c:33)
+         n0: 4096 0x109289: main (in /home/barmud/Desktop/Advanced_Programming/Matala2/PrimeCounterThreads/randomGenerator)
+#-----------
+snapshot=3
+#-----------
+time=7995950267
+mem_heap_B=0
+mem_heap_extra_B=0
+mem_stacks_B=0
+heap_tree=empty

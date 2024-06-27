@@ -5,28 +5,28 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sched.h>
-#include <sys/resource.h>
+#include <stdatomic.h>
 
 #define MAX_THREADS 8
-#define QUEUE_SIZE 1024
+#define QUEUE_SIZE 2048
 #define BATCH_SIZE 400
 
 typedef struct {
     int data[QUEUE_SIZE];
-    int head __attribute__((aligned(64)));
-    int tail __attribute__((aligned(64)));
-    int size __attribute__((aligned(64)));
-    bool done __attribute__((aligned(64)));
+    atomic_int head;
+    atomic_int tail;
+    atomic_int size;
+    atomic_bool done;
     pthread_mutex_t mutex;
     pthread_cond_t is_full;
     pthread_cond_t is_empty;
 } concurrent_queue;
 
 void init_queue(concurrent_queue* queue) {
-    queue->head = 0;
-    queue->tail = 0;
-    queue->size = 0;
-    queue->done = false;
+    atomic_init(&queue->head, 0);
+    atomic_init(&queue->tail, 0);
+    atomic_init(&queue->size, 0);
+    atomic_init(&queue->done, false);
     pthread_mutex_init(&queue->mutex, NULL);
     pthread_cond_init(&queue->is_full, NULL);
     pthread_cond_init(&queue->is_empty, NULL);
@@ -35,12 +35,12 @@ void init_queue(concurrent_queue* queue) {
 void enqueue_batch(concurrent_queue* queue, int* data, int batch_size) {
     pthread_mutex_lock(&queue->mutex);
     for (int i = 0; i < batch_size; i++) {
-        while (queue->size == QUEUE_SIZE) {
+        while (atomic_load(&queue->size) == QUEUE_SIZE) {
             pthread_cond_wait(&queue->is_full, &queue->mutex);
         }
-        queue->data[queue->tail] = data[i];
-        queue->tail = (queue->tail + 1) % QUEUE_SIZE;
-        queue->size++;
+        queue->data[atomic_load(&queue->tail)] = data[i];
+        atomic_store(&queue->tail, (atomic_load(&queue->tail) + 1) % QUEUE_SIZE);
+        atomic_fetch_add(&queue->size, 1);
     }
     pthread_cond_signal(&queue->is_empty);
     pthread_mutex_unlock(&queue->mutex);
@@ -49,81 +49,33 @@ void enqueue_batch(concurrent_queue* queue, int* data, int batch_size) {
 int dequeue_batch(concurrent_queue* queue, int* batch, int batch_size, bool* is_done) {
     pthread_mutex_lock(&queue->mutex);
     int count = 0;
-    while (queue->size == 0 && !queue->done) {
+    while (atomic_load(&queue->size) == 0 && !atomic_load(&queue->done)) {
         pthread_cond_wait(&queue->is_empty, &queue->mutex);
     }
-    while (queue->size > 0 && count < batch_size) {
-        batch[count++] = queue->data[queue->head];
-        queue->head = (queue->head + 1) % QUEUE_SIZE;
-        queue->size--;
+    while (atomic_load(&queue->size) > 0 && count < batch_size) {
+        batch[count++] = queue->data[atomic_load(&queue->head)];
+        atomic_store(&queue->head, (atomic_load(&queue->head) + 1) % QUEUE_SIZE);
+        atomic_fetch_sub(&queue->size, 1);
         pthread_cond_signal(&queue->is_full);
     }
-    if (queue->size == 0 && queue->done) {
+    if (atomic_load(&queue->size) == 0 && atomic_load(&queue->done)) {
         *is_done = true;
     }
     pthread_mutex_unlock(&queue->mutex);
     return count;
 }
 
-int mod_mul(int a, int b, int m) {
-    long long res = (long long)a * b;
-    return res % m;
-}
-
-int mod_exp(int base, int exp, int mod) {
-    int result = 1;
-    base %= mod;
-    while (exp > 0) {
-        if (exp & 1)
-            result = mod_mul(result, base, mod);
-        base = mod_mul(base, base, mod);
-        exp >>= 1;
-    }
-    return result;
-}
-
-bool miller_rabin(int n, int a) {
-    if (n < 2) return false;
-    if (n == 2) return true;
-    if (n % 2 == 0) return false;
-
-    int d = n - 1;
-    int s = 0;
-    while (d % 2 == 0) {
-        d /= 2;
-        s++;
-    }
-
-    int x = mod_exp(a, d, n);
-    if (x == 1 || x == n - 1) return true;
-
-    for (int r = 1; r < s; r++) {
-        x = mod_mul(x, x, n);
-        if (x == n - 1) return true;
-    }
-
-    return false;
-}
-
 bool isPrime(int n) {
-    if (n <= 1) return false;
-    if (n <= 3) return true;
-    if (n % 2 == 0 || n % 3 == 0) return false;
-
-    return miller_rabin(n, 2) && miller_rabin(n, 3);
+    if (n <= 1) {
+        return false;
+    }
+    for (int i = 2; i * i <= n; i++) {
+        if (n % i == 0) {
+            return false;
+        }
+    }
+    return true;
 }
-
-// bool isPrime(int n) {
-//     if (n <= 1) {
-//         return false;
-//     }
-//     for (int i = 2; i * i <= n; i++) {
-//         if (n % i == 0) {
-//             return false;
-//         }
-//     }
-//     return true;
-// }
 
 concurrent_queue queue;
 int totalPrimes __attribute__((aligned(64))) = 0;
@@ -156,7 +108,6 @@ void* primeCounter(void* arg) {
     return NULL;
 }
 
-
 int main() {
     pthread_t threads[MAX_THREADS];
     int thread_ids[MAX_THREADS];
@@ -184,7 +135,7 @@ int main() {
     }
 
     pthread_mutex_lock(&queue.mutex);
-    queue.done = true;
+    atomic_store(&queue.done, true);
     pthread_cond_broadcast(&queue.is_empty);
     pthread_mutex_unlock(&queue.mutex);
 
