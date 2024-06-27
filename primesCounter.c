@@ -39,26 +39,27 @@ void enqueue_batch(concurrent_queue* queue, int* data, int batch_size) {
         queue->tail = (queue->tail + 1) % QUEUE_SIZE;
         queue->size++;
     }
-    pthread_cond_broadcast(&queue->is_empty);
+    pthread_cond_signal(&queue->is_empty);
     pthread_mutex_unlock(&queue->mutex);
 }
 
-int dequeue(concurrent_queue* queue, bool* is_done) {
+int dequeue_batch(concurrent_queue* queue, int* batch, int batch_size, bool* is_done) {
     pthread_mutex_lock(&queue->mutex);
+    int count = 0;
     while (queue->size == 0 && !queue->done) {
         pthread_cond_wait(&queue->is_empty, &queue->mutex);
     }
+    while (queue->size > 0 && count < batch_size) {
+        batch[count++] = queue->data[queue->head];
+        queue->head = (queue->head + 1) % QUEUE_SIZE;
+        queue->size--;
+        pthread_cond_signal(&queue->is_full);
+    }
     if (queue->size == 0 && queue->done) {
         *is_done = true;
-        pthread_mutex_unlock(&queue->mutex);
-        return -1;
     }
-    int value = queue->data[queue->head];
-    queue->head = (queue->head + 1) % QUEUE_SIZE;
-    queue->size--;
-    pthread_cond_signal(&queue->is_full);
     pthread_mutex_unlock(&queue->mutex);
-    return value;
+    return count;
 }
 
 int mod_mul(int a, int b, int m) {
@@ -115,14 +116,17 @@ pthread_mutex_t primeCountMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void* primeCounter(void* arg) {
     int localPrimes = 0;
+    int batch[BATCH_SIZE];
     while (1) {
         bool is_done = false;
-        int num = dequeue(&queue, &is_done);
-        if (is_done) {
+        int count = dequeue_batch(&queue, batch, BATCH_SIZE, &is_done);
+        if (is_done && count == 0) {
             break;
         }
-        if (isPrime(num)) {
-            localPrimes++;
+        for (int i = 0; i < count; i++) {
+            if (isPrime(batch[i])) {
+                localPrimes++;
+            }
         }
     }
     pthread_mutex_lock(&primeCountMutex);
