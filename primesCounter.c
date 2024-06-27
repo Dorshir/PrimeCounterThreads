@@ -1,8 +1,11 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <sched.h>
+#include <sys/resource.h>
 
 #define MAX_THREADS 8
 #define QUEUE_SIZE 1024
@@ -10,10 +13,10 @@
 
 typedef struct {
     int data[QUEUE_SIZE];
-    int head;
-    int tail;
-    int size;
-    bool done;
+    int head __attribute__((aligned(64)));
+    int tail __attribute__((aligned(64)));
+    int size __attribute__((aligned(64)));
+    bool done __attribute__((aligned(64)));
     pthread_mutex_t mutex;
     pthread_cond_t is_full;
     pthread_cond_t is_empty;
@@ -110,11 +113,29 @@ bool isPrime(int n) {
     return miller_rabin(n, 2) && miller_rabin(n, 3);
 }
 
+// bool isPrime(int n) {
+//     if (n <= 1) {
+//         return false;
+//     }
+//     for (int i = 2; i * i <= n; i++) {
+//         if (n % i == 0) {
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
 concurrent_queue queue;
-int totalPrimes = 0;
+int totalPrimes __attribute__((aligned(64))) = 0;
 pthread_mutex_t primeCountMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void* primeCounter(void* arg) {
+    int thread_id = *(int*)arg;
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(thread_id % MAX_THREADS, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
     int localPrimes = 0;
     int batch[BATCH_SIZE];
     while (1) {
@@ -135,12 +156,15 @@ void* primeCounter(void* arg) {
     return NULL;
 }
 
+
 int main() {
     pthread_t threads[MAX_THREADS];
+    int thread_ids[MAX_THREADS];
     init_queue(&queue);
 
     for (int i = 0; i < MAX_THREADS; i++) {
-        pthread_create(&threads[i], NULL, primeCounter, NULL);
+        thread_ids[i] = i;
+        pthread_create(&threads[i], NULL, primeCounter, &thread_ids[i]);
     }
 
     int batch[BATCH_SIZE];
