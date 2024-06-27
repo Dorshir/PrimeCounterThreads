@@ -2,19 +2,18 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdbool.h>
-#include <math.h>
 #include <unistd.h>
 
-#define MAX_THREADS 4
+#define MAX_THREADS 8
 #define QUEUE_SIZE 1024
-#define BATCH_SIZE 100
+#define BATCH_SIZE 400
 
 typedef struct {
     int data[QUEUE_SIZE];
     int head;
     int tail;
     int size;
-    bool done; // Indicate if input is finished
+    bool done;
     pthread_mutex_t mutex;
     pthread_cond_t is_full;
     pthread_cond_t is_empty;
@@ -40,7 +39,7 @@ void enqueue_batch(concurrent_queue* queue, int* data, int batch_size) {
         queue->tail = (queue->tail + 1) % QUEUE_SIZE;
         queue->size++;
     }
-    pthread_cond_signal(&queue->is_empty);
+    pthread_cond_broadcast(&queue->is_empty);
     pthread_mutex_unlock(&queue->mutex);
 }
 
@@ -62,14 +61,52 @@ int dequeue(concurrent_queue* queue, bool* is_done) {
     return value;
 }
 
+int mod_mul(int a, int b, int m) {
+    long long res = (long long)a * b;
+    return res % m;
+}
+
+int mod_exp(int base, int exp, int mod) {
+    int result = 1;
+    base %= mod;
+    while (exp > 0) {
+        if (exp & 1)
+            result = mod_mul(result, base, mod);
+        base = mod_mul(base, base, mod);
+        exp >>= 1;
+    }
+    return result;
+}
+
+bool miller_rabin(int n, int a) {
+    if (n < 2) return false;
+    if (n == 2) return true;
+    if (n % 2 == 0) return false;
+
+    int d = n - 1;
+    int s = 0;
+    while (d % 2 == 0) {
+        d /= 2;
+        s++;
+    }
+
+    int x = mod_exp(a, d, n);
+    if (x == 1 || x == n - 1) return true;
+
+    for (int r = 1; r < s; r++) {
+        x = mod_mul(x, x, n);
+        if (x == n - 1) return true;
+    }
+
+    return false;
+}
+
 bool isPrime(int n) {
     if (n <= 1) return false;
     if (n <= 3) return true;
     if (n % 2 == 0 || n % 3 == 0) return false;
-    for (int i = 5; i * i <= n; i += 6) {
-        if (n % i == 0 || n % (i + 2) == 0) return false;
-    }
-    return true;
+
+    return miller_rabin(n, 2) && miller_rabin(n, 3);
 }
 
 concurrent_queue queue;
@@ -77,6 +114,7 @@ int totalPrimes = 0;
 pthread_mutex_t primeCountMutex = PTHREAD_MUTEX_INITIALIZER;
 
 void* primeCounter(void* arg) {
+    int localPrimes = 0;
     while (1) {
         bool is_done = false;
         int num = dequeue(&queue, &is_done);
@@ -84,11 +122,12 @@ void* primeCounter(void* arg) {
             break;
         }
         if (isPrime(num)) {
-            pthread_mutex_lock(&primeCountMutex);
-            totalPrimes++;
-            pthread_mutex_unlock(&primeCountMutex);
+            localPrimes++;
         }
     }
+    pthread_mutex_lock(&primeCountMutex);
+    totalPrimes += localPrimes;
+    pthread_mutex_unlock(&primeCountMutex);
     return NULL;
 }
 
@@ -112,18 +151,15 @@ int main() {
         }
     }
 
-    // Enqueue remaining numbers in the batch
     if (count > 0) {
         enqueue_batch(&queue, batch, count);
     }
 
-    // Indicate that we are done with input
     pthread_mutex_lock(&queue.mutex);
     queue.done = true;
     pthread_cond_broadcast(&queue.is_empty);
     pthread_mutex_unlock(&queue.mutex);
 
-    // Join threads
     for (int i = 0; i < MAX_THREADS; i++) {
         pthread_join(threads[i], NULL);
     }
