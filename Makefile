@@ -1,12 +1,20 @@
-.PHONY: all
-all: generator primeCounter
+.PHONY: all clean
 
-generator:  generator.c
+# Targets
+all: randomGenerator primeCounter primesCounter
+
+# Compile generator
+randomGenerator: generator.c
 	gcc -o randomGenerator generator.c
 
-primeCounter:	primeCounter.c
-	gcc -o primeCounter primeCounter.c
+# Compile primeCounter with pthread support
+primeCounter: primeCounter.c
+	gcc -o primeCounter primeCounter.c -lpthread
 
-.PHONY: clean
+# Compile primeCounter with pthread support
+primesCounter: primesCounter.c
+	gcc -o primesCounter primesCounter.c -lpthread
+
+# Clean target
 clean:
-	-rm randomGenerator primeCounter 2>/dev/null
+	-rm -f randomGenerator primeCounter
