@@ -152,18 +152,23 @@ void* primeCounter(void* arg) {
     return NULL;
 }
 
+int get_number_of_threads() {
+    return sysconf(_SC_NPROCESSORS_ONLN);
+}
+
 int main() {
-    pthread_t threads[MAX_THREADS];
-    int thread_ids[MAX_THREADS];
+    int num_threads = get_number_of_threads();
+    pthread_t threads[num_threads];
+    int thread_ids[num_threads];
     init_queue(&queue);
 
     // Initialize thread_prime_counts array
-    for (int i = 0; i < MAX_THREADS; i++) {
+    for (int i = 0; i < num_threads; i++) {
         thread_prime_counts[i] = 0;
     }
 
     // Create threads
-    for (int i = 0; i < MAX_THREADS; i++) {
+    for (int i = 0; i < num_threads; i++) {
         thread_ids[i] = i;
         pthread_create(&threads[i], NULL, primeCounter, &thread_ids[i]);
     }
@@ -190,17 +195,18 @@ int main() {
     pthread_cond_broadcast(&queue.is_empty);
     pthread_mutex_unlock(&queue.mutex);
 
-    for (int i = 0; i < MAX_THREADS; i++) {
+    for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
 
     // Aggregate thread prime counts into totalPrimes
     int totalPrimes = 0;
-    for (int i = 0; i < MAX_THREADS; i++) {
+    for (int i = 0; i < num_threads; i++) {
         totalPrimes += thread_prime_counts[i];
     }
 
     printf("%d total primes.\n", totalPrimes);
+    printf("%d\n", num_threads);
 
     return 0;
 }
