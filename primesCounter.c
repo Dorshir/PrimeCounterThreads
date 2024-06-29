@@ -7,7 +7,6 @@
 #include <sched.h>
 #include <sys/resource.h>
 
-#define MAX_THREADS 8
 #define QUEUE_SIZE 1024
 #define BATCH_SIZE 400  // Increased batch size for reduced synchronization overhead
 
