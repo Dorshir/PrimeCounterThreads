@@ -9,7 +9,7 @@
 
 #define MAX_THREADS 8
 #define QUEUE_SIZE 1024
-#define BATCH_SIZE 400
+#define BATCH_SIZE 400  // Increased batch size for reduced synchronization overhead
 
 typedef struct {
     int data[QUEUE_SIZE];
@@ -34,10 +34,10 @@ void init_queue(concurrent_queue* queue) {
 
 void enqueue_batch(concurrent_queue* queue, int* data, int batch_size) {
     pthread_mutex_lock(&queue->mutex);
+    while (queue->size + batch_size > QUEUE_SIZE) {
+        pthread_cond_wait(&queue->is_full, &queue->mutex);
+    }
     for (int i = 0; i < batch_size; i++) {
-        while (queue->size == QUEUE_SIZE) {
-            pthread_cond_wait(&queue->is_full, &queue->mutex);
-        }
         queue->data[queue->tail] = data[i];
         queue->tail = (queue->tail + 1) % QUEUE_SIZE;
         queue->size++;
@@ -56,11 +56,11 @@ int dequeue_batch(concurrent_queue* queue, int* batch, int batch_size, bool* is_
         batch[count++] = queue->data[queue->head];
         queue->head = (queue->head + 1) % QUEUE_SIZE;
         queue->size--;
-        pthread_cond_signal(&queue->is_full);
     }
     if (queue->size == 0 && queue->done) {
         *is_done = true;
     }
+    pthread_cond_signal(&queue->is_full);
     pthread_mutex_unlock(&queue->mutex);
     return count;
 }
@@ -113,63 +113,64 @@ bool isPrime(int n) {
     return miller_rabin(n, 2) && miller_rabin(n, 3);
 }
 
-// bool isPrime(int n) {
-//     if (n <= 1) {
-//         return false;
-//     }
-//     for (int i = 2; i * i <= n; i++) {
-//         if (n % i == 0) {
-//             return false;
-//         }
-//     }
-//     return true;
-// }
-
 concurrent_queue queue;
-int totalPrimes __attribute__((aligned(64))) = 0;
-pthread_mutex_t primeCountMutex = PTHREAD_MUTEX_INITIALIZER;
+int thread_prime_counts[MAX_THREADS];
 
 void* primeCounter(void* arg) {
     int thread_id = *(int*)arg;
+    int num_cores = sysconf(_SC_NPROCESSORS_ONLN);  // Get number of CPU cores
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    CPU_SET(thread_id % MAX_THREADS, &cpuset);
+    CPU_SET(thread_id % num_cores, &cpuset);
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
     int localPrimes = 0;
     int batch[BATCH_SIZE];
+    int batchPrimes = 0;  // Counter for primes in the current batch
+
     while (1) {
         bool is_done = false;
         int count = dequeue_batch(&queue, batch, BATCH_SIZE, &is_done);
         if (is_done && count == 0) {
             break;
         }
+        
+        batchPrimes = 0;  // Reset batch primes counter for each new batch
         for (int i = 0; i < count; i++) {
             if (isPrime(batch[i])) {
-                localPrimes++;
+                batchPrimes++;
             }
         }
+        
+        // Add primes counted in this batch to the local counter
+        localPrimes += batchPrimes;
     }
-    pthread_mutex_lock(&primeCountMutex);
-    totalPrimes += localPrimes;
-    pthread_mutex_unlock(&primeCountMutex);
+    
+    // Store the localPrimes count back to the main thread's array
+    thread_prime_counts[thread_id] = localPrimes;
+
     return NULL;
 }
-
 
 int main() {
     pthread_t threads[MAX_THREADS];
     int thread_ids[MAX_THREADS];
     init_queue(&queue);
 
+    // Initialize thread_prime_counts array
+    for (int i = 0; i < MAX_THREADS; i++) {
+        thread_prime_counts[i] = 0;
+    }
+
+    // Create threads
     for (int i = 0; i < MAX_THREADS; i++) {
         thread_ids[i] = i;
         pthread_create(&threads[i], NULL, primeCounter, &thread_ids[i]);
     }
 
+    // Read numbers from input and enqueue batches
     int batch[BATCH_SIZE];
     int count = 0;
-
     int num;
     while (scanf("%d", &num) != EOF) {
         batch[count++] = num;
@@ -183,6 +184,7 @@ int main() {
         enqueue_batch(&queue, batch, count);
     }
 
+    // Signal threads to finish and wait for them to complete
     pthread_mutex_lock(&queue.mutex);
     queue.done = true;
     pthread_cond_broadcast(&queue.is_empty);
@@ -190,6 +192,12 @@ int main() {
 
     for (int i = 0; i < MAX_THREADS; i++) {
         pthread_join(threads[i], NULL);
+    }
+
+    // Aggregate thread prime counts into totalPrimes
+    int totalPrimes = 0;
+    for (int i = 0; i < MAX_THREADS; i++) {
+        totalPrimes += thread_prime_counts[i];
     }
 
     printf("%d total primes.\n", totalPrimes);

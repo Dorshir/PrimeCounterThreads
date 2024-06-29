@@ -9,11 +9,11 @@ randomGenerator: generator.c
 
 # Compile primeCounter with pthread support
 primeCounter: primeCounter.c
-	gcc -o primeCounter primeCounter.c -lpthread
+	gcc -o primeCounter primeCounter.c -lpthread -lm
 
 # Compile primeCounter with pthread support
 primesCounter: primesCounter.c
-	gcc -o primesCounter primesCounter.c -lpthread
+	gcc -o primesCounter primesCounter.c -lpthread -lm
 
 # Clean target
 clean:
