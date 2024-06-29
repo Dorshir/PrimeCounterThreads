@@ -113,7 +113,6 @@ bool isPrime(int n) {
 }
 
 concurrent_queue queue;
-int thread_prime_counts[MAX_THREADS];
 
 void* primeCounter(void* arg) {
     int thread_id = *(int*)arg;
@@ -146,9 +145,9 @@ void* primeCounter(void* arg) {
     }
     
     // Store the localPrimes count back to the main thread's array
-    thread_prime_counts[thread_id] = localPrimes;
-
-    return NULL;
+    int* result = malloc(sizeof(int));
+    *result = localPrimes;
+    return result;
 }
 
 int get_number_of_threads() {
@@ -157,8 +156,9 @@ int get_number_of_threads() {
 
 int main() {
     int num_threads = get_number_of_threads();
-    pthread_t threads[num_threads];
-    int thread_ids[num_threads];
+    pthread_t* threads = malloc(num_threads * sizeof(pthread_t));
+    int* thread_ids = malloc(num_threads * sizeof(int));
+    int* thread_prime_counts = malloc(num_threads * sizeof(int));
     init_queue(&queue);
 
     // Initialize thread_prime_counts array
@@ -194,18 +194,21 @@ int main() {
     pthread_cond_broadcast(&queue.is_empty);
     pthread_mutex_unlock(&queue.mutex);
 
-    for (int i = 0; i < num_threads; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    // Aggregate thread prime counts into totalPrimes
     int totalPrimes = 0;
     for (int i = 0; i < num_threads; i++) {
-        totalPrimes += thread_prime_counts[i];
+        int* result;
+        pthread_join(threads[i], (void**)&result);
+        totalPrimes += *result;
+        free(result);
     }
 
     printf("%d total primes.\n", totalPrimes);
     printf("%d\n", num_threads);
+
+    // Clean up
+    free(threads);
+    free(thread_ids);
+    free(thread_prime_counts);
 
     return 0;
 }
